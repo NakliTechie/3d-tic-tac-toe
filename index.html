@@ -27,6 +27,7 @@ body {
   backdrop-filter: blur(10px);
   display: inline-block;
 }
+#sizeRow { display: flex; gap: 6px; justify-content: center; margin-bottom: 8px; }
 #controls { display: flex; gap: 8px; justify-content: center; }
 button {
   padding: 7px 18px;
@@ -50,6 +51,11 @@ button.active { background: rgba(68,136,255,0.25); border-color: rgba(68,136,255
 
 <div id="ui">
   <div id="status">Player <span style="color:#ff3333">X</span>'s turn</div>
+  <div id="sizeRow">
+    <button class="btnSize active" data-n="3">3×3×3</button>
+    <button class="btnSize" data-n="4">4×4×4</button>
+    <button class="btnSize" data-n="5">5×5×5</button>
+  </div>
   <div id="controls">
     <button id="btnMode">vs AI</button>
     <button id="btnNew">New Game</button>
@@ -99,38 +105,39 @@ const redGlow = new THREE.PointLight(0xff4422, 2, 20);
 redGlow.position.set(6, -4, -6);
 scene.add(redGlow);
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const N  = 3;
-const SP = 2.2;                       // spacing
-const R  = 0.42;                      // sphere radius
-const OFF = -(N-1)*SP/2;              // centering offset
+// ── Board-size config ─────────────────────────────────────────────────────────
+let N = 3;
+const CONFIGS = {
+  3: { SP:2.2,  hitR:0.56, dotR:0.07, barLen:0.88, barW:0.08,  torR:0.34, torT:0.09,  cam:[6,5,9]    },
+  4: { SP:1.72, hitR:0.44, dotR:0.055,barLen:0.68, barW:0.065, torR:0.26, torT:0.075, cam:[8,6,12]   },
+  5: { SP:1.4,  hitR:0.36, dotR:0.045,barLen:0.56, barW:0.055, torR:0.21, torT:0.06,  cam:[10,8,15]  },
+};
+let cfg = CONFIGS[N];
+let OFF = -(N-1)*cfg.SP/2;
 
-// ── Win Lines (49 in 3×3×3) ───────────────────────────────────────────────────
-const WIN_LINES = (() => {
-  const lines = [];
-  const dirs = [
+// ── Win-line generator ────────────────────────────────────────────────────────
+function buildWinLines(n) {
+  const lines = [], dirs = [
     [1,0,0],[0,1,0],[0,0,1],
     [1,1,0],[1,-1,0],[1,0,1],[1,0,-1],[0,1,1],[0,1,-1],
     [1,1,1],[1,1,-1],[1,-1,1],[1,-1,-1]
   ];
   for (const [dx,dy,dz] of dirs)
-    for (let x=0;x<N;x++) for (let y=0;y<N;y++) for (let z=0;z<N;z++) {
-      const x2=x+2*dx, y2=y+2*dy, z2=z+2*dz;
-      if (x2>=0&&x2<N && y2>=0&&y2<N && z2>=0&&z2<N)
-        lines.push([[x,y,z],[x+dx,y+dy,z+dz],[x2,y2,z2]]);
+    for (let x=0;x<n;x++) for (let y=0;y<n;y++) for (let z=0;z<n;z++) {
+      const xe=x+(n-1)*dx, ye=y+(n-1)*dy, ze=z+(n-1)*dz;
+      if (xe>=0&&xe<n && ye>=0&&ye<n && ze>=0&&ze<n) {
+        const line=[];
+        for (let i=0;i<n;i++) line.push([x+i*dx,y+i*dy,z+i*dz]);
+        lines.push(line);
+      }
     }
-  return lines; // exactly 49
-})();
+  return lines;
+}
+let WIN_LINES = buildWinLines(N);
 
-// ── Shared geometry / materials ───────────────────────────────────────────────
-const GEO_HIT = new THREE.SphereGeometry(R*1.35, 8, 8);
-const GEO_DOT = new THREE.SphereGeometry(0.07, 8, 8);
+// ── Shared materials (geometry recreated per N in buildScene / makePieceGroup) ─
 const MAT_HIT = new THREE.MeshBasicMaterial({ visible: false });
 const MAT_DOT = new THREE.MeshBasicMaterial({ color: 0x1a2a40 });
-
-// X: two crossed bars  |  O: torus
-const GEO_BAR   = new THREE.CylinderGeometry(0.08, 0.08, 0.88, 12);
-const GEO_TORUS = new THREE.TorusGeometry(0.34, 0.09, 14, 36);
 
 function makePieceGroup(player, transparent = false) {
   const group = new THREE.Group();
@@ -141,15 +148,13 @@ function makePieceGroup(player, transparent = false) {
     emissiveIntensity: transparent ? 0 : 0.2,
     transparent, opacity: transparent ? 0.3 : 1.0,
   });
-
   if (player === 'X') {
-    const b1 = new THREE.Mesh(GEO_BAR, mat());
-    b1.rotation.z = Math.PI / 4;
-    const b2 = new THREE.Mesh(GEO_BAR, mat());
-    b2.rotation.z = -Math.PI / 4;
+    const geo = new THREE.CylinderGeometry(cfg.barW, cfg.barW, cfg.barLen, 12);
+    const b1 = new THREE.Mesh(geo, mat()); b1.rotation.z =  Math.PI/4;
+    const b2 = new THREE.Mesh(geo, mat()); b2.rotation.z = -Math.PI/4;
     group.add(b1, b2);
   } else {
-    group.add(new THREE.Mesh(GEO_TORUS, mat()));
+    group.add(new THREE.Mesh(new THREE.TorusGeometry(cfg.torR, cfg.torT, 14, 36), mat()));
   }
   return group;
 }
@@ -172,13 +177,16 @@ scene.add(root);
 let hitTargets=[], pieces=[], dotMeshes=[], hoverGroupX, hoverGroupO;
 
 function cellPos(x,y,z) {
-  return new THREE.Vector3(OFF+x*SP, OFF+y*SP, OFF+z*SP);
+  return new THREE.Vector3(OFF+x*cfg.SP, OFF+y*cfg.SP, OFF+z*cfg.SP);
 }
 function cellIdx(x,y,z){ return z*N*N+y*N+x; }
 
 function buildScene() {
   while (root.children.length) root.remove(root.children[0]);
   hitTargets=[]; pieces=Array(N*N*N).fill(null); dotMeshes=[];
+
+  const GEO_HIT_N = new THREE.SphereGeometry(cfg.hitR, 8, 8);
+  const GEO_DOT_N = new THREE.SphereGeometry(cfg.dotR, 8, 8);
 
   // Grid lines
   const lineMat = new THREE.LineBasicMaterial({ color:0x1a2a4a, transparent:true, opacity:0.7 });
@@ -193,7 +201,7 @@ function buildScene() {
   }
 
   // Outer bounding box
-  const half = (N-1)*SP/2 + SP*0.08;
+  const half = (N-1)*cfg.SP/2 + cfg.SP*0.08;
   root.add(new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(half*2,half*2,half*2)),
     new THREE.LineBasicMaterial({ color:0x223355, transparent:true, opacity:0.5 })
@@ -203,13 +211,13 @@ function buildScene() {
   for (let z=0;z<N;z++) for (let y=0;y<N;y++) for (let x=0;x<N;x++) {
     const pos = cellPos(x,y,z);
 
-    const hit = new THREE.Mesh(GEO_HIT, MAT_HIT);
+    const hit = new THREE.Mesh(GEO_HIT_N, MAT_HIT);
     hit.position.copy(pos);
     hit.userData = {x,y,z};
     root.add(hit);
     hitTargets.push(hit);
 
-    const dot = new THREE.Mesh(GEO_DOT, MAT_DOT);
+    const dot = new THREE.Mesh(GEO_DOT_N, MAT_DOT);
     dot.position.copy(pos);
     root.add(dot);
     dotMeshes.push({mesh:dot, x,y,z});
@@ -252,9 +260,9 @@ function placePiece(x,y,z,player) {
 
 // ── Win check ─────────────────────────────────────────────────────────────────
 function checkResult(b) {
-  for (const [[x0,y0,z0],[x1,y1,z1],[x2,y2,z2]] of WIN_LINES) {
-    const v = b[z0][y0][x0];
-    if (v && v===b[z1][y1][x1] && v===b[z2][y2][x2]) return {winner:v, line:[[x0,y0,z0],[x1,y1,z1],[x2,y2,z2]]};
+  for (const line of WIN_LINES) {
+    const v = b[line[0][2]][line[0][1]][line[0][0]];
+    if (v && line.every(([x,y,z]) => b[z][y][x] === v)) return {winner:v, line};
   }
   return b.flat(2).some(c=>!c) ? null : {draw:true};
 }
@@ -290,13 +298,13 @@ function getEmpty(b) {
 
 function evalBoard(b) {
   let s = 0;
-  for (const [[x0,y0,z0],[x1,y1,z1],[x2,y2,z2]] of WIN_LINES) {
-    const vals = [b[z0][y0][x0],b[z1][y1][x1],b[z2][y2][x2]];
+  for (const line of WIN_LINES) {
+    const vals = line.map(([x,y,z]) => b[z][y][x]);
     const xs = vals.filter(v=>v==='X').length;
     const os = vals.filter(v=>v==='O').length;
     if (xs&&os) continue;
-    s += xs===2?10:xs===1?1:0;
-    s -= os===2?10:os===1?1:0;
+    s += xs===N-1?100 : xs===N-2&&N>2?10 : xs>0?1 : 0;
+    s -= os===N-1?100 : os===N-2&&N>2?10 : os>0?1 : 0;
   }
   return s;
 }
@@ -349,7 +357,9 @@ function getAIMove() {
   }
 
   const filled = N*N*N - empty.length;
-  const depth = filled < 6 ? 2 : filled < 14 ? 3 : 4;
+  const depth = N===3 ? (filled<6?2:filled<14?3:4)
+              : N===4 ? (filled<10?1:2)
+              : 1; // 5×5×5: heuristic-only after win/block
 
   let bestScore=Infinity, bestMove=null;
   const shuffled = [...empty].sort(()=>Math.random()-0.5);
@@ -480,9 +490,25 @@ document.getElementById('btnMode').addEventListener('click', ()=>{
 });
 document.getElementById('btnNew').addEventListener('click', newGame);
 
+document.querySelectorAll('.btnSize').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.btnSize').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    N = parseInt(btn.dataset.n);
+    newGame();
+  });
+});
+
 function newGame(){
+  cfg = CONFIGS[N];
+  OFF = -(N-1)*cfg.SP/2;
+  WIN_LINES = buildWinLines(N);
   resetState();
   buildScene();
+  const [cx,cy,cz] = cfg.cam;
+  camera.position.set(cx,cy,cz);
+  controls.target.set(0,0,0);
+  controls.update();
   updateStatus();
 }
 
