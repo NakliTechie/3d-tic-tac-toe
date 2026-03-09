@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Tic-Tac-Toe</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: radial-gradient(ellipse at center, #0c1230 0%, #050510 100%);
+  color: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+#ui {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  text-align: center; z-index: 10; pointer-events: none; white-space: nowrap;
+}
+#ui > * { pointer-events: auto; }
+#status {
+  font-size: 1.25rem; font-weight: 600; margin-bottom: 12px;
+  padding: 8px 22px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  display: inline-block;
+}
+#controls { display: flex; gap: 8px; justify-content: center; }
+button {
+  padding: 7px 18px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  cursor: pointer; font-size: 0.85rem;
+  background: rgba(15,15,35,0.8);
+  color: white;
+  backdrop-filter: blur(10px);
+  transition: all 0.2s;
+}
+button:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
+button.active { background: rgba(68,136,255,0.25); border-color: rgba(68,136,255,0.6); }
+#hint {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  font-size: 0.75rem; color: rgba(255,255,255,0.3); pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div id="status">Player <span style="color:#ff3333">X</span>'s turn</div>
+  <div id="controls">
+    <button id="btnMode">vs AI</button>
+    <button id="btnNew">New Game</button>
+  </div>
+</div>
+<div id="hint">Drag to rotate &middot; Click to place</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// ── Scene / Camera ────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(6, 5, 9);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 4;
+controls.maxDistance = 22;
+
+// ── Lighting ──────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0x99aabb, 0.5));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(6, 10, 8);
+scene.add(sun);
+const blueGlow = new THREE.PointLight(0x3388ff, 2, 20);
+blueGlow.position.set(-6, 4, 6);
+scene.add(blueGlow);
+const redGlow = new THREE.PointLight(0xff4422, 2, 20);
+redGlow.position.set(6, -4, -6);
+scene.add(redGlow);
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const N  = 3;
+const SP = 2.2;                       // spacing
+const R  = 0.42;                      // sphere radius
+const OFF = -(N-1)*SP/2;              // centering offset
+
+// ── Win Lines (49 in 3×3×3) ───────────────────────────────────────────────────
+const WIN_LINES = (() => {
+  const lines = [];
+  const dirs = [
+    [1,0,0],[0,1,0],[0,0,1],
+    [1,1,0],[1,-1,0],[1,0,1],[1,0,-1],[0,1,1],[0,1,-1],
+    [1,1,1],[1,1,-1],[1,-1,1],[1,-1,-1]
+  ];
+  for (const [dx,dy,dz] of dirs)
+    for (let x=0;x<N;x++) for (let y=0;y<N;y++) for (let z=0;z<N;z++) {
+      const x2=x+2*dx, y2=y+2*dy, z2=z+2*dz;
+      if (x2>=0&&x2<N && y2>=0&&y2<N && z2>=0&&z2<N)
+        lines.push([[x,y,z],[x+dx,y+dy,z+dz],[x2,y2,z2]]);
+    }
+  return lines; // exactly 49
+})();
+
+// ── Shared geometry / materials ───────────────────────────────────────────────
+const GEO_HIT = new THREE.SphereGeometry(R*1.35, 8, 8);
+const GEO_DOT = new THREE.SphereGeometry(0.07, 8, 8);
+const MAT_HIT = new THREE.MeshBasicMaterial({ visible: false });
+const MAT_DOT = new THREE.MeshBasicMaterial({ color: 0x1a2a40 });
+
+// X: two crossed bars  |  O: torus
+const GEO_BAR   = new THREE.CylinderGeometry(0.08, 0.08, 0.88, 12);
+const GEO_TORUS = new THREE.TorusGeometry(0.34, 0.09, 14, 36);
+
+function makePieceGroup(player, transparent = false) {
+  const group = new THREE.Group();
+  const mat = () => new THREE.MeshPhongMaterial({
+    color: player === 'X' ? 0xff3333 : 0x2299ff,
+    shininess: 130, specular: 0xffffff,
+    emissive: transparent ? 0x000000 : (player === 'X' ? 0x330000 : 0x001133),
+    emissiveIntensity: transparent ? 0 : 0.2,
+    transparent, opacity: transparent ? 0.3 : 1.0,
+  });
+
+  if (player === 'X') {
+    const b1 = new THREE.Mesh(GEO_BAR, mat());
+    b1.rotation.z = Math.PI / 4;
+    const b2 = new THREE.Mesh(GEO_BAR, mat());
+    b2.rotation.z = -Math.PI / 4;
+    group.add(b1, b2);
+  } else {
+    group.add(new THREE.Mesh(GEO_TORUS, mat()));
+  }
+  return group;
+}
+
+// ── Game state ────────────────────────────────────────────────────────────────
+let board, currentPlayer, gameOver, vsAI = false, aiThinking = false;
+
+function resetState() {
+  board = Array.from({length:N}, ()=>Array.from({length:N}, ()=>Array(N).fill(null)));
+  currentPlayer = 'X';
+  gameOver = false;
+  aiThinking = false;
+}
+resetState();
+
+// ── Scene objects ─────────────────────────────────────────────────────────────
+const root = new THREE.Group();
+scene.add(root);
+
+let hitTargets=[], pieces=[], dotMeshes=[], hoverGroupX, hoverGroupO;
+
+function cellPos(x,y,z) {
+  return new THREE.Vector3(OFF+x*SP, OFF+y*SP, OFF+z*SP);
+}
+function cellIdx(x,y,z){ return z*N*N+y*N+x; }
+
+function buildScene() {
+  while (root.children.length) root.remove(root.children[0]);
+  hitTargets=[]; pieces=Array(N*N*N).fill(null); dotMeshes=[];
+
+  // Grid lines
+  const lineMat = new THREE.LineBasicMaterial({ color:0x1a2a4a, transparent:true, opacity:0.7 });
+  for (let a=0;a<N;a++) for (let b=0;b<N;b++) {
+    [[cellPos(0,a,b),cellPos(N-1,a,b)],
+     [cellPos(a,0,b),cellPos(a,N-1,b)],
+     [cellPos(a,b,0),cellPos(a,b,N-1)]].forEach(([p1,p2])=>{
+      root.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([p1,p2]), lineMat
+      ));
+    });
+  }
+
+  // Outer bounding box
+  const half = (N-1)*SP/2 + SP*0.08;
+  root.add(new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(half*2,half*2,half*2)),
+    new THREE.LineBasicMaterial({ color:0x223355, transparent:true, opacity:0.5 })
+  ));
+
+  // Cells
+  for (let z=0;z<N;z++) for (let y=0;y<N;y++) for (let x=0;x<N;x++) {
+    const pos = cellPos(x,y,z);
+
+    const hit = new THREE.Mesh(GEO_HIT, MAT_HIT);
+    hit.position.copy(pos);
+    hit.userData = {x,y,z};
+    root.add(hit);
+    hitTargets.push(hit);
+
+    const dot = new THREE.Mesh(GEO_DOT, MAT_DOT);
+    dot.position.copy(pos);
+    root.add(dot);
+    dotMeshes.push({mesh:dot, x,y,z});
+  }
+
+  // Hover previews (one per player, toggled on demand)
+  hoverGroupX = makePieceGroup('X', true);
+  hoverGroupX.visible = false;
+  root.add(hoverGroupX);
+
+  hoverGroupO = makePieceGroup('O', true);
+  hoverGroupO.visible = false;
+  root.add(hoverGroupO);
+}
+
+// ── Place piece ───────────────────────────────────────────────────────────────
+function placePiece(x,y,z,player) {
+  board[z][y][x] = player;
+
+  const dot = dotMeshes.find(d=>d.x===x&&d.y===y&&d.z===z);
+  if (dot) dot.mesh.visible = false;
+
+  const group = makePieceGroup(player);
+  group.position.copy(cellPos(x,y,z));
+  group.scale.setScalar(0.01);
+  root.add(group);
+  pieces[cellIdx(x,y,z)] = group;
+
+  // pop-in
+  const t0 = performance.now();
+  (function pop() {
+    const t = Math.min((performance.now()-t0)/200, 1);
+    const s = t < 0.65
+      ? THREE.MathUtils.lerp(0, 1.18, t/0.65)
+      : THREE.MathUtils.lerp(1.18, 1.0, (t-0.65)/0.35);
+    group.scale.setScalar(s);
+    if (t < 1) requestAnimationFrame(pop); else group.scale.setScalar(1);
+  })();
+}
+
+// ── Win check ─────────────────────────────────────────────────────────────────
+function checkResult(b) {
+  for (const [[x0,y0,z0],[x1,y1,z1],[x2,y2,z2]] of WIN_LINES) {
+    const v = b[z0][y0][x0];
+    if (v && v===b[z1][y1][x1] && v===b[z2][y2][x2]) return {winner:v, line:[[x0,y0,z0],[x1,y1,z1],[x2,y2,z2]]};
+  }
+  return b.flat(2).some(c=>!c) ? null : {draw:true};
+}
+
+function highlightWin(line) {
+  for (const [x,y,z] of line) {
+    const group = pieces[cellIdx(x,y,z)];
+    if (!group) continue;
+    group.traverse(child => {
+      if (!child.isMesh) return;
+      child.material.color.set(0xffcc00);
+      child.material.emissive.set(0xaa7700);
+      child.material.emissiveIntensity = 0.5;
+    });
+    let t=0;
+    const iv = setInterval(()=>{
+      if (!group.parent){ clearInterval(iv); return; }
+      t+=0.08;
+      group.traverse(child => {
+        if (child.isMesh) child.material.emissiveIntensity = 0.35+0.35*Math.sin(t);
+      });
+    }, 16);
+  }
+}
+
+// ── AI ────────────────────────────────────────────────────────────────────────
+function getEmpty(b) {
+  const m=[];
+  for (let z=0;z<N;z++) for (let y=0;y<N;y++) for (let x=0;x<N;x++)
+    if (!b[z][y][x]) m.push([x,y,z]);
+  return m;
+}
+
+function evalBoard(b) {
+  let s = 0;
+  for (const [[x0,y0,z0],[x1,y1,z1],[x2,y2,z2]] of WIN_LINES) {
+    const vals = [b[z0][y0][x0],b[z1][y1][x1],b[z2][y2][x2]];
+    const xs = vals.filter(v=>v==='X').length;
+    const os = vals.filter(v=>v==='O').length;
+    if (xs&&os) continue;
+    s += xs===2?10:xs===1?1:0;
+    s -= os===2?10:os===1?1:0;
+  }
+  return s;
+}
+
+function minimax(b, depth, alpha, beta, isMax) {
+  const r = checkResult(b);
+  if (r) return r.winner==='X' ? 10000+depth : r.winner==='O' ? -10000-depth : 0;
+  if (!depth) return evalBoard(b);
+
+  const moves = getEmpty(b);
+  if (isMax) {
+    let best=-Infinity;
+    for (const [x,y,z] of moves) {
+      b[z][y][x]='X';
+      best=Math.max(best,minimax(b,depth-1,alpha,beta,false));
+      b[z][y][x]=null;
+      alpha=Math.max(alpha,best);
+      if (beta<=alpha) break;
+    }
+    return best;
+  } else {
+    let best=Infinity;
+    for (const [x,y,z] of moves) {
+      b[z][y][x]='O';
+      best=Math.min(best,minimax(b,depth-1,alpha,beta,true));
+      b[z][y][x]=null;
+      beta=Math.min(beta,best);
+      if (beta<=alpha) break;
+    }
+    return best;
+  }
+}
+
+function getAIMove() {
+  const empty = getEmpty(board);
+
+  // immediate win
+  for (const [x,y,z] of empty) {
+    board[z][y][x]='O';
+    const r = checkResult(board);
+    board[z][y][x]=null;
+    if (r?.winner==='O') return [x,y,z];
+  }
+  // block immediate loss
+  for (const [x,y,z] of empty) {
+    board[z][y][x]='X';
+    const r = checkResult(board);
+    board[z][y][x]=null;
+    if (r?.winner==='X') return [x,y,z];
+  }
+
+  const filled = N*N*N - empty.length;
+  const depth = filled < 6 ? 2 : filled < 14 ? 3 : 4;
+
+  let bestScore=Infinity, bestMove=null;
+  const shuffled = [...empty].sort(()=>Math.random()-0.5);
+  for (const [x,y,z] of shuffled) {
+    board[z][y][x]='O';
+    const s = minimax(board,depth,-Infinity,Infinity,true);
+    board[z][y][x]=null;
+    if (s<bestScore){ bestScore=s; bestMove=[x,y,z]; }
+  }
+  return bestMove;
+}
+
+// ── Move flow ─────────────────────────────────────────────────────────────────
+function makeMove(x,y,z,player) {
+  placePiece(x,y,z,player);
+
+  setTimeout(()=>{
+    const r = checkResult(board);
+    if (r) {
+      gameOver=true;
+      if (r.winner) {
+        highlightWin(r.line);
+        const col = r.winner==='X'?'#ff3333':'#2299ff';
+        setStatus(`<span style="color:${col}">${r.winner}</span> wins! 🎉`);
+      } else { setStatus('Draw!'); }
+      return;
+    }
+    currentPlayer = currentPlayer==='X'?'O':'X';
+    updateStatus();
+    if (vsAI && currentPlayer==='O' && !gameOver) {
+      aiThinking=true;
+      setStatus('AI thinking…');
+      setTimeout(()=>{
+        const mv=getAIMove();
+        aiThinking=false;
+        if (mv) makeMove(...mv,'O');
+      }, 80);
+    }
+  }, 60);
+}
+
+// ── Raycasting ────────────────────────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let mouseDownAt={x:0,y:0}, dragging=false, hoveredCell=null;
+
+function setMouse(cx,cy){
+  mouse.set((cx/innerWidth)*2-1,-(cy/innerHeight)*2+1);
+}
+
+function getHit() {
+  raycaster.setFromCamera(mouse,camera);
+  for (const h of raycaster.intersectObjects(hitTargets)) {
+    const {x,y,z}=h.object.userData;
+    if (!board[z][y][x]) return {x,y,z};
+  }
+  return null;
+}
+
+function updateHover() {
+  const canPlay = !gameOver && !aiThinking && !(vsAI&&currentPlayer==='O');
+  if (!canPlay){ hoverGroupX.visible=false; hoverGroupO.visible=false; hoveredCell=null; return; }
+  const cell=getHit();
+  if (cell) {
+    const hg = currentPlayer==='X' ? hoverGroupX : hoverGroupO;
+    const other = currentPlayer==='X' ? hoverGroupO : hoverGroupX;
+    hg.position.copy(cellPos(cell.x,cell.y,cell.z));
+    hg.visible = true;
+    other.visible = false;
+    hoveredCell=cell;
+    renderer.domElement.style.cursor='pointer';
+  } else {
+    hoverGroupX.visible=false;
+    hoverGroupO.visible=false;
+    hoveredCell=null;
+    renderer.domElement.style.cursor='grab';
+  }
+}
+
+renderer.domElement.addEventListener('mousedown', e=>{
+  mouseDownAt={x:e.clientX,y:e.clientY}; dragging=false;
+});
+renderer.domElement.addEventListener('mousemove', e=>{
+  if (Math.hypot(e.clientX-mouseDownAt.x,e.clientY-mouseDownAt.y)>5) dragging=true;
+  setMouse(e.clientX,e.clientY);
+  updateHover();
+});
+renderer.domElement.addEventListener('mouseup', e=>{
+  if (!dragging) {
+    setMouse(e.clientX,e.clientY);
+    const cell=getHit();
+    if (cell&&!gameOver&&!aiThinking&&!(vsAI&&currentPlayer==='O'))
+      makeMove(cell.x,cell.y,cell.z,currentPlayer);
+  }
+});
+
+// Touch
+renderer.domElement.addEventListener('touchstart', e=>{
+  const t=e.touches[0];
+  mouseDownAt={x:t.clientX,y:t.clientY}; dragging=false;
+  setMouse(t.clientX,t.clientY);
+},{passive:true});
+renderer.domElement.addEventListener('touchmove', e=>{
+  const t=e.touches[0];
+  if (Math.hypot(t.clientX-mouseDownAt.x,t.clientY-mouseDownAt.y)>10) dragging=true;
+  setMouse(t.clientX,t.clientY); updateHover();
+},{passive:true});
+renderer.domElement.addEventListener('touchend', ()=>{
+  if (!dragging&&hoveredCell&&!gameOver&&!aiThinking)
+    makeMove(hoveredCell.x,hoveredCell.y,hoveredCell.z,currentPlayer);
+});
+
+// ── UI ─────────────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById('status');
+function setStatus(html){ statusEl.innerHTML=html; }
+function updateStatus(){
+  const col=currentPlayer==='X'?'#ff3333':'#2299ff';
+  const who=vsAI&&currentPlayer==='O'?'AI':'Player';
+  setStatus(`${who} <span style="color:${col}">${currentPlayer}</span>'s turn`);
+}
+
+document.getElementById('btnMode').addEventListener('click', ()=>{
+  vsAI=!vsAI;
+  const btn=document.getElementById('btnMode');
+  btn.textContent=vsAI?'vs Human':'vs AI';
+  btn.classList.toggle('active',vsAI);
+  newGame();
+});
+document.getElementById('btnNew').addEventListener('click', newGame);
+
+function newGame(){
+  resetState();
+  buildScene();
+  updateStatus();
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', ()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+// ── Loop ──────────────────────────────────────────────────────────────────────
+(function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene,camera);
+})();
+
+buildScene();
+</script>
+</body>
+</html>
