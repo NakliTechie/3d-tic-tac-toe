@@ -5,10 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3D Tic-Tac-Toe</title>
 <style>
+/* Rangrez · russia-10 · НОЧЬ NOCH' */
+:root {
+  --body: #08081a;
+  --panel: #14142a;
+  --ink: #f0c870;
+  --brand: #d82828;
+  --act: #4a6ad8;
+  --ok: #6a9a3a;
+  --row: #0e0e22;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  background: radial-gradient(ellipse at center, #0c1230 0%, #050510 100%);
-  color: #fff;
+  background: radial-gradient(ellipse at center, var(--panel) 0%, var(--body) 100%);
+  color: var(--ink);
   font-family: system-ui, -apple-system, sans-serif;
   overflow: hidden;
   user-select: none;
@@ -21,8 +31,8 @@ body {
 #status {
   font-size: 1.25rem; font-weight: 600; margin-bottom: 12px;
   padding: 8px 22px;
-  background: rgba(0,0,0,0.45);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(8,8,26,0.6);
+  border: 1px solid rgba(240,200,112,0.18);
   border-radius: 20px;
   backdrop-filter: blur(10px);
   display: inline-block;
@@ -31,26 +41,26 @@ body {
 #controls { display: flex; gap: 8px; justify-content: center; }
 button {
   padding: 7px 18px;
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid rgba(240,200,112,0.25);
   border-radius: 8px;
   cursor: pointer; font-size: 0.85rem;
-  background: rgba(15,15,35,0.8);
-  color: white;
+  background: rgba(20,20,42,0.85);
+  color: var(--ink);
   backdrop-filter: blur(10px);
   transition: all 0.2s;
 }
-button:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
-button.active { background: rgba(68,136,255,0.25); border-color: rgba(68,136,255,0.6); }
+button:hover { background: rgba(240,200,112,0.12); border-color: rgba(240,200,112,0.5); }
+button.active { background: rgba(74,106,216,0.28); border-color: rgba(74,106,216,0.7); color: var(--ink); }
 #hint {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-  font-size: 0.75rem; color: rgba(255,255,255,0.3); pointer-events: none;
+  font-size: 0.75rem; color: rgba(240,200,112,0.45); pointer-events: none;
 }
 </style>
 </head>
 <body>
 
 <div id="ui">
-  <div id="status">Player <span style="color:#ff3333">X</span>'s turn</div>
+  <div id="status">Player <span style="color:#d82828">X</span>'s turn</div>
   <div id="sizeRow">
     <button class="btnSize active" data-n="3">3×3×3</button>
     <button class="btnSize" data-n="4">4×4×4</button>
@@ -94,14 +104,14 @@ controls.minDistance = 4;
 controls.maxDistance = 22;
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0x99aabb, 0.5));
-const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+scene.add(new THREE.AmbientLight(0x8896b8, 0.5));
+const sun = new THREE.DirectionalLight(0xfff2cc, 1.2);
 sun.position.set(6, 10, 8);
 scene.add(sun);
-const blueGlow = new THREE.PointLight(0x3388ff, 2, 20);
+const blueGlow = new THREE.PointLight(0x4a6ad8, 2, 20);
 blueGlow.position.set(-6, 4, 6);
 scene.add(blueGlow);
-const redGlow = new THREE.PointLight(0xff4422, 2, 20);
+const redGlow = new THREE.PointLight(0xd82828, 2, 20);
 redGlow.position.set(6, -4, -6);
 scene.add(redGlow);
 
@@ -137,15 +147,15 @@ let WIN_LINES = buildWinLines(N);
 
 // ── Shared materials (geometry recreated per N in buildScene / makePieceGroup) ─
 const MAT_HIT = new THREE.MeshBasicMaterial({ visible: false });
-const MAT_DOT = new THREE.MeshBasicMaterial({ color: 0x1a2a40 });
+const MAT_DOT = new THREE.MeshBasicMaterial({ color: 0x2a2a52 });
 
 function makePieceGroup(player, transparent = false) {
   const group = new THREE.Group();
   const mat = () => new THREE.MeshPhongMaterial({
-    color: player === 'X' ? 0xff3333 : 0x2299ff,
+    color: player === 'X' ? 0xd82828 : 0x4a6ad8,
     shininess: 130, specular: 0xffffff,
-    emissive: transparent ? 0x000000 : (player === 'X' ? 0x330000 : 0x001133),
-    emissiveIntensity: transparent ? 0 : 0.2,
+    emissive: transparent ? 0x000000 : (player === 'X' ? 0x330808 : 0x081633),
+    emissiveIntensity: transparent ? 0 : 0.22,
     transparent, opacity: transparent ? 0.3 : 1.0,
   });
   if (player === 'X') {
@@ -189,7 +199,7 @@ function buildScene() {
   const GEO_DOT_N = new THREE.SphereGeometry(cfg.dotR, 8, 8);
 
   // Grid lines
-  const lineMat = new THREE.LineBasicMaterial({ color:0x1a2a4a, transparent:true, opacity:0.7 });
+  const lineMat = new THREE.LineBasicMaterial({ color:0x2a2a52, transparent:true, opacity:0.7 });
   for (let a=0;a<N;a++) for (let b=0;b<N;b++) {
     [[cellPos(0,a,b),cellPos(N-1,a,b)],
      [cellPos(a,0,b),cellPos(a,N-1,b)],
@@ -204,7 +214,7 @@ function buildScene() {
   const half = (N-1)*cfg.SP/2 + cfg.SP*0.08;
   root.add(new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(half*2,half*2,half*2)),
-    new THREE.LineBasicMaterial({ color:0x223355, transparent:true, opacity:0.5 })
+    new THREE.LineBasicMaterial({ color:0x3a3a6a, transparent:true, opacity:0.5 })
   ));
 
   // Cells
@@ -382,7 +392,7 @@ function makeMove(x,y,z,player) {
       gameOver=true;
       if (r.winner) {
         highlightWin(r.line);
-        const col = r.winner==='X'?'#ff3333':'#2299ff';
+        const col = r.winner==='X'?'#d82828':'#4a6ad8';
         setStatus(`<span style="color:${col}">${r.winner}</span> wins! 🎉`);
       } else { setStatus('Draw!'); }
       return;
@@ -476,7 +486,7 @@ renderer.domElement.addEventListener('touchend', ()=>{
 const statusEl = document.getElementById('status');
 function setStatus(html){ statusEl.innerHTML=html; }
 function updateStatus(){
-  const col=currentPlayer==='X'?'#ff3333':'#2299ff';
+  const col=currentPlayer==='X'?'#d82828':'#4a6ad8';
   const who=vsAI&&currentPlayer==='O'?'AI':'Player';
   setStatus(`${who} <span style="color:${col}">${currentPlayer}</span>'s turn`);
 }

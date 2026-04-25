@@ -18,6 +18,12 @@ A fully playable 3D tic-tac-toe game in the browser — no build step, single HT
 
 Just open `index.html` in a browser, or visit the link above.
 
+## Palette
+
+Coloured with **`russia-10 · НОЧЬ NOCH'`** — a Russian winter night: midnight-blue body, samovar-gold ink, scarlet X, royal-blue O.
+
+Palette pulled from [**Rangrez**](https://github.com/NakliTechie/rangrez), the global colour-palette library that backs all NakliTechie projects.
+
 ---
 
 ## Part of the NakliTechie series
